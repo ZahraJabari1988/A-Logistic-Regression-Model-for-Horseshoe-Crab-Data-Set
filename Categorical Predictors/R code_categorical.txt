@@ -1,0 +1,107 @@
+suppressWarnings({library(MASS)})
+suppressWarnings({library(ggplot2)})
+suppressWarnings({library(dplyr)})
+#----------------------------------------------------------------------
+#                        Section 1
+#----------------------------------------------------------------------
+Crabs_Data<-read.table(file="D:/Horseshoe_crab_data2.txt", header=TRUE)
+Crabs_Data<-Crabs_Data[,-1]
+colnames(Crabs_Data)<-c("satell","y","weight","width","color","spine")
+str(Crabs_Data) 
+head(Crabs_Data)
+#----------------------------------------------------------------------
+#                        Section 2
+#----------------------------------------------------------------------
+summary(Crabs_Data)
+corr_mat<-cor(Crabs_Data[,-1],method="pearson") 
+corr_mat<-round(corr_mat,3)
+corr_mat<-triu(corr_mat)
+cat("\n Correlation Matrixýýýý\n")
+corr_mat
+
+#----------------------------------------------------------------------
+#                        Section 3
+#----------------------------------------------------------------------
+fit_logit<-glm(y~(weight+width+color+spine)^2,
+              family=binomial(link=logit),data=Crabs_Data)
+summary(fit_logit)
+#----------------------------------------------------------------------
+#                        Section 3-1
+#----------------------------------------------------------------------
+aplha<-0.05
+r_Stud_Res<-stdres(fit_logit)
+t_range<-3
+Data_outliers_Stud_Res<-abs(r_Stud_Res)[abs(r_Stud_Res)>t_range]
+id_Data_outliers_Stud_Res<-which(abs(r_Stud_Res)>t_range)
+result_Data_outliers_Stud_Res<-data.frame(id_Data_outliers_Stud_Res,
+                                 Data_outliers_Stud_Res,
+                                 Crabs_Data[id_Data_outliers_Stud_Res,-1])
+colnames(result_Data_outliers_Stud_Res)<-c("Id","|Studentized Residuals|","y","weight","width","color","spine")
+
+data_outliers_plot<-ggplot(data.frame(1:nrow(Crabs_Data),abs(r_Stud_Res)), aes(x=1:nrow(Crabs_Data),y=abs(r_Stud_Res)))+ 
+    geom_point(size=2)+geom_path()+
+    geom_hline(yintercept=0,linetype="dashed",color="blue",size=1)+
+    geom_hline(yintercept=3,linetype="dashed",color="blue",size=1)+
+    xlab("Observation")+ylab("|Studentized Residuals|")+
+    labs(title="|Studentized Residuals|")
+data_outliers_plot
+
+if(length(Data_outliers_Stud_Res)>0){
+cat("\n Outliers and Unusual Points based on Studentized Residuals(r_Stud_Res)\n")
+print(result_Data_outliers_Stud_Res)
+}else{
+cat("\n No outliers in data based on Studentized Residuals(r_Stud_Res)\n")
+}
+#------------------------------------------------------------
+Crabs_Data_new<-Crabs_Data[-id_Data_outliers_Stud_Res,]
+#--------------------------------
+Deviance1<-fit_logit$dev
+P_value1<-pchisq(184.1818,162,lower.tail=T)
+Deviance1
+P_value1
+#--------------------------------
+fit_logit_new=glm(y~(weight+width+color+spine)^2,family=binomial(link=logit),data=Crabs_Data_new)
+summary(fit_logit_new)
+
+Deviance2<-fit_logit_new$dev
+P_value2<-pchisq(166.9232,159,lower.tail=T)
+Deviance2
+P_value2
+#----------------------------------------------------------------------
+#                        Section 3-2
+#----------------------------------------------------------------------
+best_model<-step(fit_logit_new)
+summary(best_model)
+
+nullModel<-glm(y~1,family=binomial(link=logit),data=Crabs_Data_new) 
+fullModel<-glm(y~(weight+width+color+spine)^2,family=binomial(link=logit),data=Crabs_Data_new)
+summary(stepAIC(fullModel,direction="backward",
+                scope=list(upper=fullModel,lower=nullModel), 
+                trace=F))
+#----------------------------------------------------------------------
+#                        Section 3-3
+#----------------------------------------------------------------------
+
+odds_ratio<-exp(coef(best_model))
+round(odds_ratio,2)
+#-------------------------------------------------------
+set.seed(1388)
+Id<-1:170
+Crabs_Data_new2<-data.frame(Id,Crabs_Data_new)
+split<-sample.split(Crabs_Data_new2$Id,SplitRatio=0.7) 
+
+Crabs_Data_new3<-data.frame(Crabs_Data_new,split)
+Crabs_Data_train<-Crabs_Data_new%>%dplyr::filter(Crabs_Data_new3$split=="TRUE")
+Crabs_Data_test<-Crabs_Data_new%>%dplyr::filter(Crabs_Data_new3$split=="FALSE")
+
+fit_logit_train<-glm(y~weight+width+color+I(weight*width),
+              family=binomial(link=logit),data=Crabs_Data_train)
+
+models.probs_test<-predict(fit_logit_train,Crabs_Data_test,type="response")
+models.pred_test<-rep(0,length(models.probs_test))
+models.pred_test[models.probs_test>0.5] <- 1
+Table_model_performance2<-table(models.pred_test,Crabs_Data_test$y,
+                          dnn = c("Predicted Status","Observed Status"))
+Table_model_performance2
+prop.table(Table_model_performance2)
+
